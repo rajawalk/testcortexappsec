@@ -1,0 +1,54 @@
+name: Cortex AppSec Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to scan'
+        required: true
+        default: 'main'
+
+jobs:
+  appsec-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # Download and set up the Cortex CLI
+      - name: Install Cortex CLI
+        run: |
+          curl -L -o cortexcli https://gh-proxy.com/https://github.com/cortexapps/cli/releases/latest/download/cortex-linux-amd64
+          chmod +x cortexcli
+
+      # Execute the AppSec Scan
+      - name: Run Cortex AppSec Scan
+        run: |
+          ./cortexcli --api-base-url "${{ secrets.CORTEX_API_BASE_URL }}" \
+                      --api-key "${{ secrets.CORTEX_API_KEY }}" \
+                      --api-key-id "${{ secrets.CORTEX_API_KEY_ID }}" \
+                      code scan \
+                      --directory ./ \
+                      --repo-id "${{ github.repository }}" \
+                      --branch "${{ github.event.inputs.branch }}" \
+                      --output json \
+                      --output-file-path ./cortex-results.json
+
+      # Optional: Upload the results so you can view them in GitHub
+      - name: Upload Scan Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-scan-results
+          path: cortex-results.json
