@@ -1,54 +1,53 @@
-name: Cortex AppSec Scan
+
+name: Cortex CLI Code Scan
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Branch to scan'
-        required: true
-        default: 'main'
 
+env:
+  CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY}}
+  CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID}}
+  CORTEX_API_URL: https://api-tac-x5.xdr.sg.paloaltonetworks.com
+  
 jobs:
-  appsec-scan:
+  cortex-code-scan:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch }}
+    - name: Checkout Repository
+      uses: actions/checkout@v2
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
+    - name: Verify Node.js Version
+      run: node -v
 
-      - name: Install Dependencies
-        run: npm install
+    - name: Download cortexcli
+      run: |
+        set -x
+        crtx_resp=$(curl "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
+          -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
+          -H "Authorization: ${CORTEX_API_KEY}")
+        crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
+        curl -o cortexcli $crtx_url
+        chmod +x cortexcli
+        ./cortexcli --version
 
-      # Download and set up the Cortex CLI
-      - name: Install Cortex CLI
-        run: |
-          curl -L -o cortexcli https://gh-proxy.com/https://github.com/cortexapps/cli/releases/latest/download/cortex-linux-amd64
-          chmod +x cortexcli
-
-      # Execute the AppSec Scan
-      - name: Run Cortex AppSec Scan
-        run: |
-          ./cortexcli --api-base-url "${{ secrets.CORTEX_API_BASE_URL }}" \
-                      --api-key "${{ secrets.CORTEX_API_KEY }}" \
-                      --api-key-id "${{ secrets.CORTEX_API_KEY_ID }}" \
-                      code scan \
-                      --directory ./ \
-                      --repo-id "${{ github.repository }}" \
-                      --branch "${{ github.event.inputs.branch }}" \
-                      --output json \
-                      --output-file-path ./cortex-results.json
-
-      # Optional: Upload the results so you can view them in GitHub
-      - name: Upload Scan Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: cortex-scan-results
-          path: cortex-results.json
+    - name: Run Cortex CLI Code Scan
+      run: |
+        ./cortexcli \
+          --api-base-url "${CORTEX_API_URL}" \
+          --api-key "${CORTEX_API_KEY}" \
+          --api-key-id "${CORTEX_API_KEY_ID}" \
+          code scan \
+          --directory "${{github.workspace}}" \
+          --repo-id "${{github.repository}}" \
+          --branch "${{github.ref_name}}" \
+          --source "GITHUB_ACTIONS" \
+          --create-repo-if-missing
